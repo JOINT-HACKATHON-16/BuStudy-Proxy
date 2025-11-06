@@ -61,7 +61,7 @@ def fetch_total_time_bus_only(
         "SY": start_lat,      # 출발지 Y좌표 (위도)
         "EX": end_lon,        # 도착지 X좌표 (경도)
         "EY": end_lat,        # 도착지 Y좌표 (위도)
-        "SearchType": 1,      # 도시간 이동 (1 = 도시간 이동/도시내 이동 구분검색)
+        "SearchType": 0,      # 도시내 이동 (0 = 도시내 검색, 도시간 있으면 활용)
         "SearchPathType": 2,  # 버스만 사용 (2 = 버스)
         "lang": lang,
         "output": "json"
@@ -71,6 +71,14 @@ def fetch_total_time_bus_only(
         response = requests.get(ODSAY_API_URL, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
+        print(f"DEBUG: 요청 파라미터: {params}")
+        print(f"DEBUG: API 응답: {data}")
+        
+        # API 응답에 error 필드가 있는지 확인
+        if "error" in data:
+            error_msg = data.get("error", [{}])[0].get("message", "Unknown error")
+            raise ValueError(f"API 에러: {error_msg}")
         
         # API 응답 구조 확인
         if "result" not in data:
