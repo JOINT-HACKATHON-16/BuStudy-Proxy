@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 import requests
 import os
@@ -10,24 +10,15 @@ load_dotenv()
 
 app = FastAPI()
 
-# 환경 변수에서 API 키와 URL 가져오기
+# 환경 변수에서 API 키 가져오기
 ODSAY_API_KEY = os.getenv("ODSAY_API_KEY")
-ODSAY_API_URL = os.getenv("ODSAY_API_URL")
 
 # 필수 환경 변수 검증
 if not ODSAY_API_KEY:
     raise ValueError("ODSAY_API_KEY 환경 변수가 설정되지 않았습니다.")
-if not ODSAY_API_URL:
-    raise ValueError("ODSAY_API_URL 환경 변수가 설정되지 않았습니다.")
 
-
-class LocationRequest(BaseModel):
-    """위치 요청 모델"""
-    start_lat: float  # 출발지 위도 (Y좌표)
-    start_lon: float  # 출발지 경도 (X좌표)
-    end_lat: float    # 도착지 위도 (Y좌표)
-    end_lon: float    # 도착지 경도 (X좌표)
-    lang: Optional[int] = 0  # 언어 (기본값: 국문)
+# ODSAY API URL (고정)
+ODSAY_API_BASE_URL = "https://api.odsay.com/v1/api/searchPubTransPathT"
 
 
 class TravelTimeResponse(BaseModel):
@@ -43,7 +34,7 @@ def fetch_total_time_bus_only(
     lang: int = 0
 ) -> int:
     """
-    ODSAY API를 호출하여 도시간 이동, 버스만 사용할 때의 totalTime 반환
+    ODSAY API를 호출하여 도시내 이동, 버스만 사용할 때의 totalTime 반환
     
     Args:
         start_lat: 출발지 위도
@@ -55,24 +46,25 @@ def fetch_total_time_bus_only(
     Returns:
         총 소요시간 (분)
     """
+    # 파라미터 순서: apiKey, lang, SX, SY, EX, EY
     params = {
         "apiKey": ODSAY_API_KEY,
+        "lang": lang,
         "SX": start_lon,      # 출발지 X좌표 (경도)
         "SY": start_lat,      # 출발지 Y좌표 (위도)
         "EX": end_lon,        # 도착지 X좌표 (경도)
         "EY": end_lat,        # 도착지 Y좌표 (위도)
-        "SearchType": 0,      # 도시내 이동 (0 = 도시내 검색, 도시간 있으면 활용)
+        "SearchType": 0,      # 도시내 이동 (0 = 도시내 검색)
         "SearchPathType": 2,  # 버스만 사용 (2 = 버스)
-        "lang": lang,
         "output": "json"
     }
     
     try:
-        response = requests.get(ODSAY_API_URL, params=params, timeout=10)
+        response = requests.get(ODSAY_API_BASE_URL, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        print(f"DEBUG: 요청 파라미터: {params}")
+        print(f"DEBUG: 요청 URL: {response.url}")
         print(f"DEBUG: API 응답: {data}")
         
         # API 응답에 error 필드가 있는지 확인
@@ -90,7 +82,7 @@ def fetch_total_time_bus_only(
         if "path" not in result or len(result["path"]) == 0:
             raise ValueError("경로 데이터를 찾을 수 없습니다")
         
-        # 첫 번째 경로 선택
+        # 버스만 검색한 경우, path[0]이 버스 경로
         first_path = result["path"][0]
         
         if "info" not in first_path:
@@ -106,23 +98,30 @@ def fetch_total_time_bus_only(
         raise HTTPException(status_code=500, detail=f"응답 파싱 실패: {str(e)}")
 
 
-@app.post("/travel-time", response_model=TravelTimeResponse)
-async def get_travel_time(request: LocationRequest) -> TravelTimeResponse:
+@app.get("/travel-time", response_model=TravelTimeResponse)
+async def get_travel_time(
+    start_lat: float = Query(..., description="출발지 위도"),
+    start_lon: float = Query(..., description="출발지 경도"),
+    end_lat: float = Query(..., description="도착지 위도"),
+    end_lon: float = Query(..., description="도착지 경도"),
+    lang: Optional[int] = Query(0, description="언어 (0=국문, 1=영문, 2=일문, 3=중문간체, 4=중문번체, 5=베트남어)")
+) -> TravelTimeResponse:
     """
     도시간 이동, 버스만 사용할 때의 총 소요시간 반환
     
-    Args:
-        request: 출발지/도착지 좌표 정보
-    
-    Returns:
-        TravelTimeResponse: 총 소요시간 (분)
+    Query Parameters:
+        - start_lat: 출발지 위도
+        - start_lon: 출발지 경도
+        - end_lat: 도착지 위도
+        - end_lon: 도착지 경도
+        - lang: 언어 (선택, 기본값: 0)
     """
     total_time = fetch_total_time_bus_only(
-        start_lat=request.start_lat,
-        start_lon=request.start_lon,
-        end_lat=request.end_lat,
-        end_lon=request.end_lon,
-        lang=request.lang
+        start_lat=start_lat,
+        start_lon=start_lon,
+        end_lat=end_lat,
+        end_lon=end_lon,
+        lang=lang
     )
     
     return TravelTimeResponse(total_time=total_time)
@@ -136,4 +135,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
