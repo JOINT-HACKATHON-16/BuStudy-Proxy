@@ -4,6 +4,7 @@ import requests
 import os
 from typing import Optional
 from dotenv import load_dotenv
+from urllib.parse import urlencode, quote
 
 # .env 파일 로드
 load_dotenv()
@@ -60,7 +61,11 @@ def fetch_total_time_bus_only(
     }
     
     try:
-        response = requests.get(ODSAY_API_BASE_URL, params=params, timeout=10)
+        # 쿼리 문자열을 미리 구성 (특수문자 인코딩하여 정확히 한 번만)
+        query_string = urlencode(params, quote_via=quote)
+        url = f"{ODSAY_API_BASE_URL}?{query_string}"
+        
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
